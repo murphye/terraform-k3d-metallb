@@ -10,10 +10,24 @@ This terraform module intend to create a local kubernetes cluster using k3d and 
 * docker: https://docs.docker.com/install/
 * k3d: https://github.com/rancher/k3d
 
-## Note due to pending PR
+```
+terraform apply -var-file=example.tfvars
+terraform destroy -var-file=example.tfvars
+```
+TODO
 
-This module depends on a future version of the terraform-provider-docker due to a fix.
+Getting error
 
-Use and compile the plugin from: https://github.com/PhilippeVienne/terraform-provider-docker
+```
+null_resource.k3d_cluster (local-exec): INFO[0009] You can now use it like this:
+null_resource.k3d_cluster (local-exec): kubectl config use-context k3d-testing
+null_resource.k3d_cluster (local-exec): kubectl cluster-info
+null_resource.k3d_cluster: Creation complete after 9s [id=4831948376182366053]
+data.external.kubeconfig: Reading...
+data.docker_network.k3d: Reading...
+data.docker_network.k3d: Read complete after 0s [id=4b9778fc55af0cf603af4818596e807685d1a3fbf05e877120734a84a4cbeaa5]
+local_file.metallb_config: Creating...
+local_file.metallb_config: Creation complete after 0s [id=7042e5b1707625b88f79d009c32cef467d9c21e8]
 
-PR Status: https://github.com/terraform-providers/terraform-provider-docker/pull/229
+Error: command "/bin/bash" produced invalid JSON: invalid character 'S' looking for beginning of value
+```

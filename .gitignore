@@ -4,3 +4,4 @@ metallb_config.yaml
 *.tfstate.backup
 .terraform
 terraform.tfvars
+.terraform.lock.hcl

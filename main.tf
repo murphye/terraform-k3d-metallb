@@ -1,3 +1,12 @@
+terraform {
+  required_providers {
+    docker = {
+      source = "kreuzwerker/docker"
+      version = "2.11.0"
+    }
+  }
+}
+
 variable "k3d_cluster_name" {
   default = "k3s-default"
   type = string
@@ -13,19 +22,15 @@ variable "k3d_cluster_ip" {
   type = string
 }
 
-provider "docker" {
-  version = ">2.6.0"
-}
-
-variable "workers_count" {
-  default = 0
+variable "k3d_server_count" {
+  default = 1
   type = number
 }
 
-resource "null_resource" "cluster" {
+resource "null_resource" "k3d_cluster" {
   triggers = {
     name = var.k3d_cluster_name
-    workers_count = var.workers_count
+    server_count = var.k3d_server_count
     ip = var.k3d_cluster_ip
     port = var.k3d_cluster_port
   }
@@ -35,57 +40,57 @@ resource "null_resource" "cluster" {
       "-c"
     ]
     command = <<TERM
-k3d create --name ${var.k3d_cluster_name} --workers ${var.workers_count} --auto-restart --api-port ${var.k3d_cluster_ip}:${var.k3d_cluster_port}
-until k3d get-kubeconfig --name='${var.k3d_cluster_name}'; do
-  sleep 1;
-done
+k3d cluster create --servers ${var.k3d_server_count} --network k3d-${var.k3d_cluster_name} --api-port ${var.k3d_cluster_port} --registry-create --no-lb --k3s-server-arg '--no-deploy=traefik' ${var.k3d_cluster_name}
 TERM
   }
   provisioner "local-exec" {
-    command = "k3d delete --name ${var.k3d_cluster_name}"
+    command = "k3d cluster delete ${self.triggers.name}"
     when = destroy
   }
 }
 
 data external kubeconfig {
   depends_on = [
-    null_resource.cluster
+    null_resource.k3d_cluster
   ]
   program = [
     "/bin/bash",
     "-c",
 <<BASH
-k3d get-kubeconfig --name='${var.k3d_cluster_name}' | jq -R "{kubeconfig:.}"
+kubectl config use-context k3d-${var.k3d_cluster_name}
 BASH
   ]
 }
 
 data docker_network k3d {
   depends_on = [
-    null_resource.cluster
+    null_resource.k3d_cluster
   ]
   name = "k3d-${var.k3d_cluster_name}"
 }
 
 resource "null_resource" "metallb" {
+  triggers = {
+    name = var.k3d_cluster_name
+  }
   depends_on = [
-    null_resource.cluster
+    null_resource.k3d_cluster
   ]
   provisioner "local-exec" {
     environment = {
       KUBECONFIG = data.external.kubeconfig.result["kubeconfig"]
     }
-    command = "kubectl apply -f https://raw.githubusercontent.com/google/metallb/v0.8.3/manifests/metallb.yaml"
+    command = "kubectl apply -f https://raw.githubusercontent.com/google/metallb/v0.9.5/manifests/metallb.yaml"
   }
   provisioner "local-exec" {
-    command = "kubectl delete -f https://raw.githubusercontent.com/google/metallb/v0.8.3/manifests/metallb.yaml --kubeconfig=$(k3d get-kubeconfig --name='${var.k3d_cluster_name}')"
+    command = "kubectl delete -f https://raw.githubusercontent.com/google/metallb/v0.9.5/manifests/metallb.yaml --kubeconfig=$(k3d get-kubeconfig --name='${self.triggers.name}')"
     when = destroy
   }
 }
 
 resource "local_file" "metallb_config" {
   depends_on = [
-    null_resource.cluster,
+    null_resource.k3d_cluster,
     data.docker_network.k3d
   ]
   filename = "${path.module}/metallb_config.yaml"
@@ -110,10 +115,11 @@ YAML
 
 resource "null_resource" "metallb_config" {
   depends_on = [
-    null_resource.cluster,
+    null_resource.k3d_cluster,
     null_resource.metallb
   ]
   triggers = {
+    name = var.k3d_cluster_name
     kubeconfig = data.external.kubeconfig.result["kubeconfig"]
     metallb_config = md5(local_file.metallb_config.content)
   }
@@ -124,7 +130,7 @@ resource "null_resource" "metallb_config" {
     command = "kubectl apply -f ${local_file.metallb_config.filename}"
   }
   provisioner "local-exec" {
-    command = "kubectl delete -n metallb-system configmap config --kubeconfig=$(k3d get-kubeconfig --name='${var.k3d_cluster_name}')"
+    command = "kubectl delete -n metallb-system configmap config"
     when = destroy
   }
 }
